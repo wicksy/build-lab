@@ -1,0 +1,8 @@
+#!/bin/sh
+
+#
+# Stage 1 bootstrap
+#
+
+[ ! -f /etc/.nobootstrap ] && /usr/local/bin/bootstrap.py
+touch /etc/.nobootstrap
