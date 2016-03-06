@@ -1,0 +1,36 @@
+{
+    "builders": [{
+        "type": "virtualbox-iso",
+        "guest_os_type": "RedHat_64",
+        "iso_url": "./http/CentOS-7-x86_64-DVD-1511.iso",
+        "iso_checksum": "907e5755f824c5848b9c8efbb484f3cd945e93faa024bad6ba875226f9683b16",
+        "iso_checksum_type": "sha256",
+        "hard_drive_interface": "sata",
+        "iso_interface": "sata",
+        "http_directory": "./http",
+        "vm_name": "WICKSY-TEMPLATES-CENTOS-7_1-64",
+        "guest_additions_path": "/dev/null",
+        "output_directory": "output/centos7",
+        "headless": true,
+        "vboxmanage": [
+            ["modifyvm", "{{.Name}}", "--memory", "2048"]
+        ],
+        "boot_wait": "30s",
+        "boot_command": [
+            "<up><tab>",
+            "<wait>",
+            " ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/centos_7_kvm.ks",
+            "<wait>",
+            "<enter>"
+        ],
+        "ssh_username": "packer",
+        "ssh_password": "packer",
+        "ssh_timeout": "15m",
+        "shutdown_command": "echo 'packer' | sudo -S shutdown -P now"
+    }],
+    "post-processors": [{
+        "type": "vagrant",
+        "keep_input_artifact": true,
+        "output": "output/centos7/WICKSY-TEMPLATES-CENTOS-7_1-64.box"
+    }]
+}
