@@ -1,0 +1,1 @@
+Install as hooks/host/managed/after_create/01_update_ec2_tags to set tags on EC2 instances

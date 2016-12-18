@@ -1,0 +1,197 @@
+#!/bin/bash
+
+fail () {
+	code=${1}
+	shift
+	text=${*}
+	echo ${text} | tee ${mytty}
+	exit ${code}
+}
+
+progname=`/bin/basename "${0}"`
+logfile="/tmp/${progname}.$$.out"
+mytty=`/usr/bin/tty`
+foreman_url="http://localhost"
+
+/bin/echo "Starting ${progname} script"
+/bin/echo "Logging session to ${logfile}"
+
+set -x
+
+exec 1>${logfile}
+exec 2>&1
+
+/bin/chmod 600 ${logfile}
+
+inlog=`/bin/ls -1tr /tmp/build.foreman.[0-9]*.out 2>/dev/null \
+ | /usr/bin/tr -d ' ' \
+ | /usr/bin/tail -1`
+
+[[ `/bin/echo "${inlog}"` == "" ]] && fail 100 "Cannot find any foreman build log"
+
+
+[[ ! -s ${inlog} ]] && fail 110 "Foreman build log is invalid (${inlog})"
+
+/bin/echo "Foreman build log is ${inlog}" | tee ${mytty}
+/bin/echo "Extracting admin credentials" | tee ${mytty}
+
+adminuser=`/bin/cat ${inlog} \
+            | /bin/sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g" \
+            | /bin/awk '/Initial credentials are/ {print $(NF-2)}'`
+
+adminpass=`/bin/cat ${inlog} \
+            | /bin/sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g" \
+            | /bin/awk '/Initial credentials are/ {print $NF}'`
+
+/bin/echo "Login: ${adminuser}" 
+/bin/echo "Password: ${adminpass}"
+
+/bin/echo "Credentials extracted" | tee ${mytty}
+
+/bin/echo "Enter AWS access key" | tee ${mytty}
+read access_key
+[[ `/bin/echo ${access_key} | /usr/bin/tr -d ' '` == "" ]] && fail 120 "No AWS access key specified"
+
+/bin/echo "Enter AWS secret key" | tee ${mytty}
+read secret_key
+[[ `/bin/echo ${secret_key} | /usr/bin/tr -d ' '` == "" ]] && fail 130 "No AWS secret key specified"
+
+/bin/echo "Creating Compute Resource (EC2)" | tee ${mytty}
+
+out=$(/usr/bin/curl -s -H "Accept:application/json" -H "Content-Type:application/json" \
+     -k -u ${adminuser}:${adminpass} \
+     -d '
+{
+  "compute_resource": {
+    "name": "ec2-eu-west-1",
+    "region": "eu-west-1",
+    "provider": "EC2",
+    "user": "'${access_key}'",
+    "password": "'${secret_key}'"
+  }
+}
+	' \
+	${foreman_url}/api/compute_resources \
+		| /usr/bin/python -mjson.tool \
+	)
+
+id=`/bin/echo ${out} \
+	| /usr/bin/python -mjson.tool \
+	| /bin/awk -F':' '/\"id\":/ {print $2}' \
+	| /usr/bin/tr -d ', '`
+
+/bin/echo "Compute resource id is ${id}" | tee ${mytty}
+
+/bin/echo "Creating RHEL 6.5 image" | tee ${mytty}
+out=$(/usr/bin/curl -s -H "Accept:application/json" -H "Content-Type:application/json" \
+     -k -u ${adminuser}:${adminpass} \
+     -d '
+{
+  "image": {
+    "name": "RHEL Server 6.5",
+    "operatingsystem_id": "1",
+    "compute_resource_id": "'${id}'",
+    "architecture_id": "1",
+    "username": "ec2-user",
+    "uuid": "ami-8cfc51fb",
+    "user_data": "0"
+  }
+}
+	' \
+	${foreman_url}/api/compute_resources/${id}/images \
+		| /usr/bin/python -mjson.tool \
+	)
+
+/bin/echo ${out} \
+	| /usr/bin/python -mjson.tool
+
+/bin/echo "Creating subnet" | tee ${mytty}
+out=$(/usr/bin/curl -s -H "Accept:application/json" -H "Content-Type:application/json" \
+     -k -u ${adminuser}:${adminpass} \
+     -d '
+{
+  "subnet": {
+    "name": "Test subnet A",
+    "network": "192.168.1.0",
+    "mask": "255.255.255.0",
+    "dns_secondary": "192.168.1.254"
+  }
+}
+	' \
+	${foreman_url}/api/subnets \
+		| /usr/bin/python -mjson.tool \
+	)
+
+/bin/echo ${out} \
+	| /usr/bin/python -mjson.tool
+
+/bin/echo "Updating default OS (marking as 64bit)" | tee ${mytty}
+out=$(/usr/bin/curl -s -H "Accept:application/json" -H "Content-Type:application/json" \
+     -X PUT \
+     -k -u ${adminuser}:${adminpass} \
+     -d '
+{
+  "operatingsystem": {
+    "name": "RedHat",
+    "description": "RHEL Server 6.5",
+    "architecture_ids": ["", "1", ""]
+  }
+}
+	' \
+	${foreman_url}/api/operatingsystems/1 \
+		| /usr/bin/python -mjson.tool \
+	)
+
+/bin/echo ${out} \
+	| /usr/bin/python -mjson.tool
+
+/bin/echo "Creating test host group" | tee ${mytty}
+out=$(/usr/bin/curl -s -H "Accept:application/json" -H "Content-Type:application/json" \
+     -k -u ${adminuser}:${adminpass} \
+     -d '
+{
+  "hostgroup": {
+    "name": "test",
+    "environment_id": "1",
+    "puppet_ca_proxy_id": "1",
+    "puppet_proxy_id": "1",
+    "domain_id": "1",
+    "subnet_id": "1",
+    "architecture_id": "1",
+    "operatingsystem_id": "1"
+  }
+}
+	' \
+	${foreman_url}/api/hostgroups \
+		| /usr/bin/python -mjson.tool \
+	)
+
+/bin/echo ${out} \
+	| /usr/bin/python -mjson.tool
+
+/bin/echo "Creating finish template" | tee ${mytty}
+out=$(/usr/bin/curl -s -H "Accept:application/json" -H "Content-Type:application/json" \
+     -k -u ${adminuser}:${adminpass} \
+     -d '
+{
+  "config_template": {
+    "name": "REDHAT",
+    "template": "exit 0",
+    "snippet": "0",
+    "template_kind_id": "5",
+    "operatingsystem_ids": ["", "1"],
+    "template_combinations_attributes": {
+	"0": {
+		"hostgroup_id": "1",
+		"environment_id": "1"
+	}
+    }
+  }
+}
+	' \
+	${foreman_url}/api/config_templates \
+		| /usr/bin/python -mjson.tool \
+	)
+
+/bin/echo "Base object build complete" | tee ${mytty}
+exit 0

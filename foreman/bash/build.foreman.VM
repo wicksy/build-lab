@@ -1,0 +1,109 @@
+#!/bin/bash
+
+# Vars
+#
+progname=`/bin/basename "${0}"`
+dirname=`/usr/bin/dirname "${0}"`
+buildscript="build.foreman.py"
+logfile="/tmp/${progname}.$$.out"
+mytty=`/usr/bin/tty`
+domain="localdomain"
+
+# EC2 variables
+#
+region="eu-west-1"
+ami="ami-8cfc51fb"
+sg="sg-abcdef99"
+key="Test"
+subnet="subnet-abc123ff"
+type="m1.small"
+dept="TEST"
+userdata="/tmp/${buildscript}.$$"
+
+# Host name
+#
+hostname="${1}"
+
+if [[ `/bin/echo "${hostname}" | /usr/bin/tr -d ' '` == "" ]] ; then
+        echo "Enter short host name e.g. testhost"
+        read hostname
+        if [[ `/bin/echo "${hostname}" | /usr/bin/tr -d ' '` == "" ]] ; then
+                /bin/echo "No host name specified"
+                exit 100
+        fi
+else
+        echo "Using host name ${hostname}"
+fi
+
+# Trace and log
+
+set -x
+
+exec 1>${logfile}
+exec 2>&1
+
+/bin/chmod 600 ${logfile}
+
+longhost="${hostname}.${domain}"
+
+/bin/echo "Starting ${progname} script" | /usr/bin/tee ${mytty}
+/bin/echo "Logging session to ${logfile}" | /usr/bin/tee ${mytty}
+/bin/echo "Using long hostname ${longhost}" | /usr/bin/tee ${mytty}
+/bin/echo "Copying ${dirname}/${buildscript} to ${userdata}" | /usr/bin/tee ${mytty}
+
+/bin/cp -f ${dirname}/${buildscript} ${userdata}
+/bin/chmod 700 ${userdata}
+
+/bin/echo "Modifying ${userdata} to use ${hostname}" | /usr/bin/tee ${mytty}
+/bin/echo "os.system('/tmp/build.foreman.stub ${hostname} &')" >> ${userdata}
+
+
+/bin/echo "Modifying ${userdata} to inject AWS keys" | /usr/bin/tee ${mytty}
+/bin/sed -i "s/AWS_ACCESS_KEY/${AWS_ACCESS_KEY}/g" ${userdata}
+/bin/sed -i "s/AWS_SECRET_KEY/${AWS_SECRET_KEY}/g" ${userdata}
+
+/bin/echo "Build script ${userdata} updated" | /usr/bin/tee ${mytty}
+
+/bin/echo "Creating Foreman instance" | /usr/bin/tee ${mytty}
+/bin/echo "Name tag: ${longhost}" | /usr/bin/tee ${mytty}
+/bin/echo "Department tag: ${dept}" | /usr/bin/tee ${mytty}
+/bin/echo "Region: ${region}" | /usr/bin/tee ${mytty}
+/bin/echo "AMI: ${ami}" | /usr/bin/tee ${mytty}
+/bin/echo "Group: ${sg}" | /usr/bin/tee ${mytty}
+/bin/echo "Key: ${key}" | /usr/bin/tee ${mytty}
+/bin/echo "Subnet: ${subnet}" | /usr/bin/tee ${mytty}
+/bin/echo "Type: ${type}" | /usr/bin/tee ${mytty}
+
+out=$(/usr/local/ec2/latest/bin/ec2-run-instances \
+        --url https://eu-west-1.console.aws.amazon.com \
+        --region "${region}" \
+        "${ami}" \
+        --user-data-file "${userdata}" \
+        --group "${sg}" \
+        --key "${key}" \
+        --instance-count 1 \
+        --subnet "${subnet}" \
+        --instance-type "${type}")
+#
+#      --verbose \
+#      --auth-dry-run \
+
+/bin/echo ${out} 
+
+instanceid=`/bin/echo ${out} \
+            | /bin/awk '{print $5}' \
+            | /usr/bin/tr -d ' '`
+
+/bin/echo "Instance ID: ${instanceid}" | /usr/bin/tee ${mytty}
+/bin/echo "Tagging instance" | /usr/bin/tee ${mytty}
+
+out=$(/usr/local/ec2/latest/bin/ec2-create-tags \
+        --url https://eu-west-1.console.aws.amazon.com \
+        --region "${region}" \
+        "${instanceid}" \
+        --tag Department="${dept}" \
+        --tag Name="${longhost}")
+
+/bin/echo ${out}
+
+exit 0

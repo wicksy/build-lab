@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# Update AWS EC2 tags for an instance when it's created
+
+set -x
+
+progname=`/bin/basename "${0}"`
+dirname=`/usr/bin/dirname "${0}"`
+log="/tmp/${progname}.out.$$"
+
+exec 1>${log}
+exec 2>&1
+
+read -t 1 json_object 
+
+/bin/echo ${json_object}
+
+/bin/echo "1: ${1}"
+/bin/echo "2: ${2}"
+/bin/echo "All: ${*}"
+
+taginfo=$(/bin/echo ${json_object} \
+  | ${dirname}/${progname}.py \
+  )
+
+/bin/echo ${taginfo}
+
+uuid=`/bin/echo "${taginfo}" | /bin/awk '{print $1}' | /usr/bin/tr -d ' '`
+dept=`/bin/echo "${taginfo}" | /bin/awk '{print $2}' | /usr/bin/tr -d ' '`
+
+if [[ ${dept} == "" ]] ; then
+  dept="ITS"
+fi
+
+/bin/echo "Instance ID: ${uuid}" 
+/bin/echo "Tagging instance: Department ${dept}"
+
+out=$(/usr/local/ec2/latest/bin/ec2-create-tags \
+        --url https://eu-west-1.console.aws.amazon.com \
+        --region eu-west-1 \
+        "${uuid}" \
+        --tag Department="${dept}" \
+      )
+
+/bin/echo ${out}
+
+exit 0

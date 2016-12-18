@@ -1,0 +1,68 @@
+<%#
+kind: finish
+name: Redhat 6.6 with PE
+%>
+
+#!/bin/bash
+
+set -x
+
+exec 1>/tmp/finish.$$.out
+exec 2>&1
+
+/bin/logger "Starting FINISH script"
+
+/bin/logger "Fixing hostname"
+/bin/sed -i "s/HOSTNAME=.*/HOSTNAME=<%= @host.name %>/g" /etc/sysconfig/network
+/bin/hostname <%= @host.name %>
+
+echo "<%= @host.ip %> <%= @host.name %> <%= @host.shortname %>" >> /etc/hosts
+
+# Restart syslog to pick up new hostname
+/sbin/service rsyslog restart
+
+/bin/logger "Fixing resolv.conf"
+/bin/cat > /etc/resolv.conf << EOF
+<%= snippet 'resolv.conf' %>
+EOF
+
+/usr/bin/chattr +i /etc/resolv.conf
+
+/bin/logger "Creating proxy.sh"
+/bin/cat > /etc/profile.d/proxy.sh << EOF
+<%= snippet 'proxy.sh' %>
+export no_proxy="<%= @host.puppetmaster %>,localhost,127.0.0.1"
+EOF
+
+. /etc/profile.d/proxy.sh
+
+#/bin/logger "Running yum udpate"
+#/usr/bin/yum -t -y -e 0 update
+
+/bin/logger "Adding proxy to yum.conf"
+/bin/echo "proxy=http://repo:8080" >> /etc/yum.conf
+
+/bin/logger "Installing epel repo"
+# install EPEL
+/bin/rpm -Uvh http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+
+/bin/logger "Installing puppetlabs repo"
+# install Puppetlabs
+/bin/rpm -Uvh http://yum.puppetlabs.com/puppetlabs-release-el-6.noarch.rpm
+
+/bin/logger "Installing local repo"
+# install local repo
+/bin/rpm -Uvh http://repo.:8080/repo/rpm/el/6Server/x86_64/repo-1.0.0-1.el6.noarch.rpm
+
+/bin/logger "Rebuilding yum caches"
+/usr/bin/yum -y clean all
+/usr/bin/yum -y makecache
+
+/bin/logger "Installing puppet agent (master: <%= @host.puppetmaster %>)"
+# Install and setup PE agent using the master repo
+/usr/bin/curl -k https://<%= @host.puppetmaster %>:8140/packages/current/install.bash  | /bin/bash
+
+#/bin/logger "Rebooting"
+#/sbin/shutdown -r now
+
+exit 0

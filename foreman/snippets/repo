@@ -1,0 +1,10 @@
+<%#
+kind: snippet
+name: repo
+%>
+[repo]
+name=repo $releasever - \$basearch
+baseurl=http://repo:8080/repo/rpm/el/\$releasever/\$basearch
+enabled=1
+gpgcheck=0
+proxy=_none_
