@@ -1,3 +1,3 @@
-### All things build related
+## Build tooling
 
-Stuff to help you build images, packages etc
+Stuff to help you build images, packages, hosts, etc.
